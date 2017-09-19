@@ -1,7 +1,7 @@
 from distutils.core import setup
 setup(
-  name = 'ssh_decorator',
-  packages = ['ssh_decorator'],
+  name = 'ssh_decorate',
+  packages = ['ssh_decorate'],
   install_requires=[
           'pandas',
           'numpy',
