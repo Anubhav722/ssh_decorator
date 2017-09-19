@@ -2,6 +2,11 @@ from distutils.core import setup
 setup(
   name = 'ssh_decorator',
   packages = ['ssh_decorator'],
+  install_requires=[
+          'pandas',
+          'numpy',
+          'paramiko',
+  ],
   version = '0.1',
   python_requires='>=3',
   description = 'Run python code via ssh with a decorator',
