@@ -1,3 +1,4 @@
+import sys
 import paramiko
 import time
 import os
@@ -74,6 +75,7 @@ class ssh_connect:
         else:
             self.stdin='\n'+self.python_cmd+'\n'
         self.stdin+="import cPickle as pickle\n"
+        self.stdin+="try:\n\timport pandas as pd\n except ImportError:\n\tpass\n\n"
         self.stdin+="import subprocess\n"
         self.stdin+="def bash(cmd):\n\tret=subprocess.call(cmd+' >/dev/null 2>&1',shell=True)\n\treturn ret\n\n"
         self.stdin+="\nprint( '<RE'+'M'+'OTE>')\n"
@@ -124,12 +126,22 @@ class ssh_connect:
         while ((indent*' ')+code_lines[0].lstrip()!=code_lines[0]):
             indent+=1
         code_lines=[l[indent:] for l in code_lines]
-        signature= inspect.signature(func)
+        if sys.version_info.major==3:
+            signature= inspect.signature(func)
+        else:
+            signature = inspect.getargspec(func)
         #print the result
         def ret_func(*args, **kwargs):
-            code_lines[0]='def {f}({args}):\n'.format(f=func.__name__,args=','.join([str(k) for k in signature.bind(*args, **kwargs).arguments.keys()]))
-            python_code=''.join(code_lines)
-            python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([repr(k) for k in signature.bind(*args, **kwargs).arguments.values()]))
+            if sys.version_info.major==3:
+                code_lines[0]='def {f}({args}):\n'.format(f=func.__name__,args=','.join([str(k) for k in signature.bind(*args, **kwargs).arguments.keys()]))
+                python_code=''.join(code_lines)
+                python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([repr(k) for k in signature.bind(*args, **kwargs).arguments.values()]))
+            else:
+                code_lines[0]='def {f}({args}):\n'.format(f=func.__name__,args=','.join([str(k) for k in signature.args]))
+                python_code=''.join(code_lines)
+                kw = dict(zip(signature.args, args) + kwargs.items())
+                python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([str(k)+"="+repr(v) for k,v in kw.items()]))                
+            python_code+='\nif "pd" in globals() and type(ret)==pd.DataFrame:\n\tret=ret.to_dict()\n\n'
             python_code+='pickled=pickle.dumps(ret)\nprint ("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
             #run on the server
             #print python_code
@@ -138,7 +150,14 @@ class ssh_connect:
             pickled=pickled[0]
             pickled=pickled[pickled.find('<OUTPUT>')+len('<OUTPUT>'):pickled.find('</OUTPUT>')]
             pickled=eval(pickled)
-            ret=pickle.loads(str.encode(pickled))
+            if sys.version_info.major==3:
+                ret=pickle.loads(str.encode(pickled))
+            else:
+                ret=pickle.loads(pickled)
+            if (type(ret)==dict) and self.cast_dict_to_dataframe:
+                #if all the dictionary keys have the same number of records:
+                if len(set([len(v) for k, v in ret.items()]))==1:
+                    ret=pd.DataFrame(ret)
             return ret
         return ret_func
 
