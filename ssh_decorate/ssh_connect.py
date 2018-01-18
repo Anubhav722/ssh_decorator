@@ -9,7 +9,7 @@ import numpy as np
 
 class ssh_connect:
     """This class wraps the clpd ssh access"""
-    def __init__(self,user,password,server):
+    def __init__(self,user,password,server, privatekeyfile = None):
         """tests the connection"""
         self.user=user
         self.server=server
@@ -17,7 +17,12 @@ class ssh_connect:
         #initiate connection
         self.ssh_client = paramiko.SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.ssh_client.connect(self.server, username=self.user,password=self.password)
+        if privatekeyfile is None and password is None:
+            privatekeyfile = os.path.expanduser('~/.ssh/id_rsa')
+            mykey = paramiko.RSAKey.from_private_key_file(privatekeyfile)
+            self.ssh_client.connect(self.server, username=self.user, pkey=mykey)
+        else:
+            self.ssh_client.connect(self.server, username=self.user,password=self.password)
         self.chan=self.ssh_client.invoke_shell()
         self.stdout=self.exec_cmd("PS1='python-ssh:'")#ignore welcome message
         self.stdin=''
@@ -25,6 +30,7 @@ class ssh_connect:
         self.in_process=''
         self.format={}
         self.python_cmd='python'
+        self.cast_dict_to_dataframe = True
 
     def __del__(self):
         """close the ssh connection"""
@@ -58,7 +64,7 @@ class ssh_connect:
                 print (r.decode("utf-8"))
             buff+=r.decode("utf-8")
             #Auto insert password
-            if buff.split('\n')[-1].strip().lower()=='password:':
+            if self.password is not None and buff.split('\n')[-1].strip().lower()=='password:':
                 self.chan.send(self.password+'\n')
                 time.sleep(100)
         return buff[:-11]
@@ -140,7 +146,7 @@ class ssh_connect:
                 code_lines[0]='def {f}({args}):\n'.format(f=func.__name__,args=','.join([str(k) for k in signature.args]))
                 python_code=''.join(code_lines)
                 kw = dict(zip(signature.args, args) + kwargs.items())
-                python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([str(k)+"="+repr(v) for k,v in kw.items()]))                
+                python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([str(k)+"="+repr(v) for k,v in kw.items()]))
             python_code+='\nif "pd" in globals() and type(ret)==pd.DataFrame:\n\tret=ret.to_dict()\n\n'
             python_code+='pickled=pickle.dumps(ret)\nprint ("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
             #run on the server
@@ -150,7 +156,7 @@ class ssh_connect:
             pickled=pickled[0]
             pickled=pickled[pickled.find('<OUTPUT>')+len('<OUTPUT>'):pickled.find('</OUTPUT>')]
             pickled=eval(pickled)
-            if sys.version_info.major==3:
+            if sys.version_info.major==3 and self.python_cmd.find("python3")<0:
                 ret=pickle.loads(str.encode(pickled))
             else:
                 ret=pickle.loads(pickled)
