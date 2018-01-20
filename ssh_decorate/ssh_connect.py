@@ -7,29 +7,32 @@ import pickle
 import pandas as pd
 import numpy as np
 
+
 class ssh_connect:
     """This class wraps the clpd ssh access"""
-    def __init__(self,user,password,server, privatekeyfile = None):
+
+    def __init__(self, user, password, server, port=22, privateKeyFile='~/.ssh/id_rsa', interpreter='/usr/bin/python'):
         """tests the connection"""
-        self.user=user
-        self.server=server
-        self.password=password
-        #initiate connection
+        self.user = user
+        self.server = server
+        self.password = password
+        self.port = port
+        # initiate connection
         self.ssh_client = paramiko.SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        if privatekeyfile is None and password is None:
-            privatekeyfile = os.path.expanduser('~/.ssh/id_rsa')
-            mykey = paramiko.RSAKey.from_private_key_file(privatekeyfile)
-            self.ssh_client.connect(self.server, username=self.user, pkey=mykey)
+        privateKeyFile = privateKeyFile if os.path.isabs(privateKeyFile) else os.path.expanduser(privateKeyFile)
+        if os.path.exists(privateKeyFile):
+            private_key = paramiko.RSAKey.from_private_key_file(privateKeyFile)
+            self.ssh_client.connect(server, port=port, username=user, pkey=private_key)
         else:
-            self.ssh_client.connect(self.server, username=self.user,password=self.password)
-        self.chan=self.ssh_client.invoke_shell()
-        self.stdout=self.exec_cmd("PS1='python-ssh:'")#ignore welcome message
-        self.stdin=''
-        self.keep_python=False
-        self.in_process=''
-        self.format={}
-        self.python_cmd='python'
+            self.ssh_client.connect(server, port=port, username=user, password=password)
+        self.chan = self.ssh_client.invoke_shell()
+        self.stdout = self.exec_cmd("PS1='python-ssh:'")  # ignore welcome message
+        self.stdin = ''
+        self.keep_python = False
+        self.in_process = ''
+        self.format = {}
+        self.python_cmd = interpreter
         self.cast_dict_to_dataframe = True
 
     def __del__(self):
@@ -49,151 +52,164 @@ class ssh_connect:
         """convinience for self.exec_cmd"""
         self.exec_cmd(cmd, True)
 
-    def exec_cmd(self,cmd,verbose=False):
+    def exec_cmd(self, cmd, verbose=False):
         """Gets ssh command(s), execute them, and returns the output"""
-        buff=''
-        if type(cmd)!=list:
-            cmd=[cmd]
+        buff = ''
+        if type(cmd) != list:
+            cmd = [cmd]
         for c in cmd:
-            self.chan.send(str(c)+'\n')
+            self.chan.send(str(c) + '\n')
         while not self.chan.recv_ready():
             time.sleep(1)
         while not buff.endswith('python-ssh:'):
-            r=self.chan.recv(1024)
-            if (verbose):
-                print (r.decode("utf-8"))
-            buff+=r.decode("utf-8")
-            #Auto insert password
-            if self.password is not None and buff.split('\n')[-1].strip().lower()=='password:':
-                self.chan.send(self.password+'\n')
+            r = self.chan.recv(1024)
+            if verbose:
+                print(r.decode("utf-8"))
+            buff += r.decode("utf-8")
+            # Auto insert password
+            if self.password is not None and buff.split('\n')[-1].strip().lower() == 'password:':
+                self.chan.send(self.password + '\n')
                 time.sleep(100)
         return buff[:-11]
 
-    def exec_code(self,python_code):
+    def exec_code(self, python_code):
         """runs python code snippets on the ssh server and returns the raw response"""
         if self.keep_python:
-            if self.in_process=='':
-                self.stdin='\n'
+            if self.in_process == '':
+                self.stdin = '\n'
             else:
-                #start python process
-                self.in_process='python'
-                self.stdin='\n'+self.python_cmd+'\n'
+                # start python process
+                self.in_process = 'python'
+                self.stdin = '\n' + self.python_cmd + '\n'
         else:
-            self.stdin='\n'+self.python_cmd+'\n'
-        self.stdin+="import cPickle as pickle\n"
-        self.stdin+="try:\n\timport pandas as pd\n except ImportError:\n\tpass\n\n"
-        self.stdin+="import subprocess\n"
-        self.stdin+="def bash(cmd):\n\tret=subprocess.call(cmd+' >/dev/null 2>&1',shell=True)\n\treturn ret\n\n"
-        self.stdin+="\nprint( '<RE'+'M'+'OTE>')\n"
-        self.stdin+=python_code
-        self.stdin+="\nprint( '</RE'+'M'+'OTE>')\n"
+            self.stdin = '\n' + self.python_cmd + '\n'
+        self.stdin += "import cPickle as pickle\n"
+        self.stdin += "try:\n\timport pandas as pd\nexcept ImportError:\n\tpass\n\n"
+        self.stdin += "import subprocess\n"
+        self.stdin += "def bash(cmd):\n\tret=subprocess.call(cmd+' >/dev/null 2>&1',shell=True)\n\treturn ret\n\n"
+        self.stdin += "\nprint( '<RE'+'M'+'OTE>')\n"
+        self.stdin += python_code
+        self.stdin += "\nprint( '</RE'+'M'+'OTE>')\n"
         if not self.keep_python:
-            self.stdin+="exit()\n"
-        self.stdout=self.exec_cmd(self.stdin)
-        ret=self.stdout[self.stdout.find('<REMOTE>')+len('<REMOTE>'):self.stdout.find('</REMOTE>')]
-        while ret.find('<IGNORE>')>-1:
-            ret=ret[:ret.find('<IGNORE>')]+ret[ret.find('</IGNORE>')+9:]
-        #ret=[l for l in ret.split('\r\n') if not (l.startswith('>>> ') or l.startswith('... '))]
-        ret=[l for l in ret.split('\r\n') if not (l.startswith('>>> ') or l.startswith('... ') or (l.find(' INFO ')>-1) )]
+            self.stdin += "exit()\n"
+        self.stdout = self.exec_cmd(self.stdin)
+        ret = self.stdout[self.stdout.find('<REMOTE>') + len('<REMOTE>'):self.stdout.find('</REMOTE>')]
+        while ret.find('<IGNORE>') > -1:
+            ret = ret[:ret.find('<IGNORE>')] + ret[ret.find('</IGNORE>') + 9:]
+        # ret=[l for l in ret.split('\r\n') if not (l.startswith('>>> ') or l.startswith('... '))]
+        ret = [l for l in ret.split('\r\n') if
+               not (l.startswith('>>> ') or l.startswith('... ') or (l.find(' INFO ') > -1))]
         return ret[1:-1]
 
-    def ctrl(self,letter):
+    def ctrl(self, letter):
         """simulate hitting ctrl+?"""
-        ascii=ord(letter[0].upper())
-        c=chr(ascii-64)
+        ascii = ord(letter[0].upper())
+        c = chr(ascii - 64)
         self.chan.send(c)
 
-    def env_var(self,varname):
+    def env_var(self, varname):
         """Returns environment variable"""
-        varval=self.exec_cmd("echo '<v''r>'$"+str(varname)+"'</v''r>'", False)
-        varval=varval[varval.find('<vr>')+4:varval.find('</vr>')]
+        varval = self.exec_cmd("echo '<v''r>'$" + str(varname) + "'</v''r>'", False)
+        varval = varval[varval.find('<vr>') + 4:varval.find('</vr>')]
         return varval
 
-    def bash(self,func):
+    def bash(self, func):
         """Run bash commands"""
-        cmd=func.__doc__
-        if len(self.format)>0:
-            cmd=cmd.format(**(self.format))
-        with open('py_ssh_tmp.sh','w') as f:
+        cmd = func.__doc__
+        if len(self.format) > 0:
+            cmd = cmd.format(**self.format)
+        with open('py_ssh_tmp.sh', 'w') as f:
             f.write(cmd)
         self.put_file('py_ssh_tmp.sh')
         time.sleep(3)
-        ret=self.exec_cmd('. py_ssh_tmp.sh',True)
-        self.stdout=ret
-        self.stdin=cmd
+        ret = self.exec_cmd('. py_ssh_tmp.sh', True)
+        self.stdout = ret
+        self.stdin = cmd
         return lambda: '\n'.join([s.strip() for s in ret.split('\n')[1:]])
 
-    def py(self,func):
+    def py(self, func):
         """Runs a python function in a remote ssh"""
-        code_lines=inspect.getsourcelines(func)[0]
-        code_lines=[l for l in code_lines if not (l.lstrip().startswith('@') or l.find('print ')>-1)]
-        #remove indentation
-        indent=0
-        while ((indent*' ')+code_lines[0].lstrip()!=code_lines[0]):
-            indent+=1
-        code_lines=[l[indent:] for l in code_lines]
-        if sys.version_info.major==3:
-            signature= inspect.signature(func)
+        code_lines = inspect.getsourcelines(func)[0]
+        code_lines = [l for l in code_lines if not (l.lstrip().startswith('@') or l.find('print ') > -1)]
+        # remove indentation
+        indent = 0
+        while (indent * ' ') + code_lines[0].lstrip() != code_lines[0]:
+            indent += 1
+        code_lines = [l[indent:] for l in code_lines]
+        if sys.version_info.major == 3:
+            signature = inspect.signature(func)
         else:
             signature = inspect.getargspec(func)
-        #print the result
+        # print the result
+
         def ret_func(*args, **kwargs):
-            if sys.version_info.major==3:
-                code_lines[0]='def {f}({args}):\n'.format(f=func.__name__,args=','.join([str(k) for k in signature.bind(*args, **kwargs).arguments.keys()]))
-                python_code=''.join(code_lines)
-                python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([repr(k) for k in signature.bind(*args, **kwargs).arguments.values()]))
+            if sys.version_info.major == 3:
+                code_lines[0] = 'def {f}({args}):\n'.format(f=func.__name__, args=','.join(
+                    [str(k) for k in signature.bind(*args, **kwargs).arguments.keys()]))
+                python_code = ''.join(code_lines)
+                python_code += '\nret={f}({args})\n'.format(f=func.__name__, args=','.join(
+                    [repr(k) for k in signature.bind(*args, **kwargs).arguments.values()]))
             else:
-                code_lines[0]='def {f}({args}):\n'.format(f=func.__name__,args=','.join([str(k) for k in signature.args]))
-                python_code=''.join(code_lines)
+                code_lines[0] = 'def {f}({args}):\n'.format(f=func.__name__,
+                                                            args=','.join([str(k) for k in signature.args]))
+                python_code = ''.join(code_lines)
                 kw = dict(zip(signature.args, args) + kwargs.items())
-                python_code+='\nret={f}({args})\n'.format(f=func.__name__,args=','.join([str(k)+"="+repr(v) for k,v in kw.items()]))
-            python_code+='\nif "pd" in globals() and type(ret)==pd.DataFrame:\n\tret=ret.to_dict()\n\n'
-            python_code+='pickled=pickle.dumps(ret)\nprint ("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
-            #run on the server
-            #print python_code
-            pickled=self.exec_code(python_code)
-            #print pickled
-            pickled=pickled[0]
-            pickled=pickled[pickled.find('<OUTPUT>')+len('<OUTPUT>'):pickled.find('</OUTPUT>')]
-            pickled=eval(pickled)
-            if sys.version_info.major==3 and self.python_cmd.find("python3")<0:
-                ret=pickle.loads(str.encode(pickled))
+                python_code += '\nret={f}({args})\n'.format(f=func.__name__, args=','.join(
+                    [str(k) + "=" + repr(v) for k, v in kw.items()]))
+            python_code += '\nif "pd" in globals() and type(ret)==pd.DataFrame:\n\tret=ret.to_dict()\n\n'
+            python_code += 'pickled=pickle.dumps(ret)\nprint("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
+            # run on the server
+            # print python_code
+            pickled = self.exec_code(python_code)
+            # print pickled
+            pickled = [i for i in pickled if '<OUTPUT>' in i][0]
+            pickled = pickled[pickled.find('<OUTPUT>') + len('<OUTPUT>'):pickled.find('</OUTPUT>')]
+            pickled = eval(pickled)
+            if sys.version_info.major == 3 and self.python_cmd.find("python3") < 0:
+                ret = pickle.loads(str.encode(pickled))
             else:
-                ret=pickle.loads(pickled)
-            if (type(ret)==dict) and self.cast_dict_to_dataframe:
-                #if all the dictionary keys have the same number of records:
-                if len(set([len(v) for k, v in ret.items()]))==1:
-                    ret=pd.DataFrame(ret)
+                ret = pickle.loads(pickled)
+            if (type(ret) == dict) and self.cast_dict_to_dataframe:
+                # if all the dictionary keys have the same number of records:
+                if len(set([len(v) for k, v in ret.items()])) == 1:
+                    ret = pd.DataFrame(ret)
             return ret
+
         return ret_func
 
-    def put_file(self,local_path,remote_path=None):
+    def put_file(self, local_path, remote_path=None):
         """Copies a file to the server"""
-        if (remote_path is None):
-            remote_path=local_path
-        sftp=self.ssh_client.open_sftp()
-        sftp.put(local_path,remote_path)
+        if remote_path is None:
+            remote_path = local_path
+        sftp = self.ssh_client.open_sftp()
+        sftp.put(local_path, remote_path)
         sftp.close()
 
-    def get_file(self,remote_path,local_path=None):
+    def get_file(self, remote_path, local_path=None):
         """Copies a file from the server"""
-        if (local_path is None):
-            local_path=remote_path
-        sftp=self.ssh_client.open_sftp()
-        sftp.get(remote_path,local_path)
+        if local_path is None:
+            local_path = remote_path
+        sftp = self.ssh_client.open_sftp()
+        sftp.get(remote_path, local_path)
         sftp.close()
 
 
+if __name__ == '__main__':
+    ssh = ssh_connect('user', 'password', 'server')
 
-if (__name__=='__main__'):
-    ssh=ssh_connect('user','password','server')
+
     @ssh.py
     def python_pwd():
         import os
         return os.getcwd()
-    print (python_pwd())
+
+
+    print(python_pwd())
+
 
     @ssh.bash
     def ls():
         return "ls"
-    print (ls())
+
+
+    print(ls())
