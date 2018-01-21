@@ -112,6 +112,8 @@ class ssh_connect:
     def bash(self,func):
         """Run bash commands"""
         cmd=func.__doc__
+        if not any(func.__doc__):
+            raise SyntaxError("docstring cannot be empty")
         if len(self.format)>0:
             cmd=cmd.format(**(self.format))
         with open('py_ssh_tmp.sh','w') as f:
