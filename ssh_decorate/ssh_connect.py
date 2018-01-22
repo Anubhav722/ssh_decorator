@@ -115,12 +115,12 @@ class ssh_connect:
 
     def bash(self, func):
         """Run bash commands"""
-        cmd = func.__doc__
+        cmd=func.__doc__
         if not any(func.__doc__):
             raise SyntaxError("docstring cannot be empty")
-        if len(self.format) > 0:
-            cmd = cmd.format(**self.format)
-        with open('py_ssh_tmp.sh', 'w') as f:
+        if len(self.format)>0:
+            cmd=cmd.format(**(self.format))
+        with open('py_ssh_tmp.sh','w') as f:
             f.write(cmd)
         self.put_file('py_ssh_tmp.sh')
         time.sleep(3)
@@ -142,7 +142,6 @@ class ssh_connect:
             signature = inspect.signature(func)
         else:
             signature = inspect.getargspec(func)
-
         # print the result
 
         def ret_func(*args, **kwargs):
