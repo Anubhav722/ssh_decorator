@@ -5,18 +5,20 @@ import os
 import inspect
 import pickle
 import pandas as pd
-import numpy as np
 
 
 class ssh_connect:
     """This class wraps the clpd ssh access"""
 
-    def __init__(self, user, password, server, port=22, privateKeyFile='~/.ssh/id_rsa', interpreter='/usr/bin/python'):
+    def __init__(self, user, password, server, port=22,
+                 privateKeyFile='~/.ssh/id_rsa', interpreter='/usr/bin/python',
+                 verbose=False):
         """tests the connection"""
         self.user = user
         self.server = server
         self.password = password
         self.port = port
+        self.verbose = verbose
         # initiate connection
         self.ssh_client = paramiko.SSHClient()
         self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -50,9 +52,24 @@ class ssh_connect:
 
     def __rshift__(self, cmd):
         """convinience for self.exec_cmd"""
-        self.exec_cmd(cmd, True)
+        self.exec_cmd(cmd)
 
-    def exec_cmd(self, cmd, verbose=False):
+    @property
+    def local_pyversion(self):
+        """Version of local curent python"""
+        if not hasattr(self, '_pyversion'):
+            self._pyversyon = sys.version_info.major
+        return self._pyversyon
+
+    @property
+    def remote_pyversion(self):
+        """Trying to get remote python version"""
+        if not hasattr(self, '_remote_py_version'):
+            buf_str = self.exec_cmd('''%s -c "import sys;print('{}'.format(sys.version_info[0]))"''' % self.python_cmd)
+            self._remote_py_version = int(buf_str.split()[-1])
+        return self._remote_py_version
+
+    def exec_cmd(self, cmd):
         """Gets ssh command(s), execute them, and returns the output"""
         buff = ''
         if type(cmd) != list:
@@ -63,7 +80,7 @@ class ssh_connect:
             time.sleep(1)
         while not buff.endswith('python-ssh:'):
             r = self.chan.recv(1024)
-            if verbose:
+            if self.verbose:
                 print(r.decode("utf-8"))
             buff += r.decode("utf-8")
             # Auto insert password
@@ -94,6 +111,7 @@ class ssh_connect:
             self.stdin += "exit()\n"
         self.stdout = self.exec_cmd(self.stdin)
         ret = self.stdout[self.stdout.find('<REMOTE>') + len('<REMOTE>'):self.stdout.find('</REMOTE>')]
+        self.stdout = ''
         while ret.find('<IGNORE>') > -1:
             ret = ret[:ret.find('<IGNORE>')] + ret[ret.find('</IGNORE>') + 9:]
         # ret=[l for l in ret.split('\r\n') if not (l.startswith('>>> ') or l.startswith('... '))]
@@ -109,7 +127,7 @@ class ssh_connect:
 
     def env_var(self, varname):
         """Returns environment variable"""
-        varval = self.exec_cmd("echo '<v''r>'$" + str(varname) + "'</v''r>'", False)
+        varval = self.exec_cmd("echo '<v''r>'$" + str(varname) + "'</v''r>'")
         varval = varval[varval.find('<vr>') + 4:varval.find('</vr>')]
         return varval
 
@@ -124,7 +142,7 @@ class ssh_connect:
             f.write(cmd)
         self.put_file('py_ssh_tmp.sh')
         time.sleep(3)
-        ret = self.exec_cmd('. py_ssh_tmp.sh', True)
+        ret = self.exec_cmd('. py_ssh_tmp.sh')
         self.stdout = ret
         self.stdin = cmd
         return lambda: '\n'.join([s.strip() for s in ret.split('\n')[1:]])
@@ -138,7 +156,7 @@ class ssh_connect:
         while (indent * ' ') + code_lines[0].lstrip() != code_lines[0]:
             indent += 1
         code_lines = [l[indent:] for l in code_lines]
-        if sys.version_info.major == 3:
+        if self.local_pyversion is 3:
             signature = inspect.signature(func)
         else:
             signature = inspect.getargspec(func)
@@ -146,7 +164,7 @@ class ssh_connect:
         # print the result
 
         def ret_func(*args, **kwargs):
-            if sys.version_info.major == 3:
+            if self.local_pyversion is 3:
                 code_lines[0] = 'def {f}({args}):\n'.format(f=func.__name__, args=','.join(
                     [str(k) for k in signature.bind(*args, **kwargs).arguments.keys()]))
                 python_code = ''.join(code_lines)
@@ -168,7 +186,7 @@ class ssh_connect:
             pickled = [i for i in pickled if '<OUTPUT>' in i][0]
             pickled = pickled[pickled.find('<OUTPUT>') + len('<OUTPUT>'):pickled.find('</OUTPUT>')]
             pickled = eval(pickled)
-            if sys.version_info.major == 3 and self.python_cmd.find("python3") < 0:
+            if self.local_pyversion != self.remote_pyversion:
                 ret = pickle.loads(str.encode(pickled))
             else:
                 ret = pickle.loads(pickled)
