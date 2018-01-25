@@ -5,6 +5,7 @@ import os
 import inspect
 import pickle
 import pandas as pd
+from itertools import chain
 
 
 class ssh_connect:
@@ -43,7 +44,7 @@ class ssh_connect:
             self.ssh_client.close()
             if os.path.isfile('py_ssh_tmp.sh'):
                 os.remove('py_ssh_tmp.sh')
-        except:
+        except Exception:
             pass
 
     def __call__(self, func):
@@ -53,6 +54,27 @@ class ssh_connect:
     def __rshift__(self, cmd):
         """convinience for self.exec_cmd"""
         self.exec_cmd(cmd)
+
+    def __cleanup__(self, func):
+        """Clean decorated function before send code to remote server"""
+
+        def _cleanup_docstring_(line: str):
+            triple_commons_cases = ('"""', "'''")
+            _ = line.strip()
+            if hasattr(_cleanup_docstring_, 'TRIGGER'):
+                if _.endswith(triple_commons_cases[0]) or line.endswith(triple_commons_cases[1]):
+                    delattr(_cleanup_docstring_, 'TRIGGER')
+            elif _.startswith(triple_commons_cases[0]) or line.startswith(triple_commons_cases[1]):
+                _cleanup_docstring_.TRIGGER = True
+            else:
+                return line
+
+        code_lines = (_cleanup_docstring_(l) for l in inspect.getsourcelines(func)[0])
+        if not self.verbose:
+            code_lines = (x for x in code_lines if not [i for i in ('print(', 'print ') if i in x])
+        clean_comments = (x.split('#')[0] for x in code_lines if x)
+        clean_empty_lines = (x for x in clean_comments if x and not x.isspace())
+        return (x for x in clean_empty_lines if not x.lstrip().startswith('@'))
 
     @property
     def local_pyversion(self):
@@ -149,38 +171,38 @@ class ssh_connect:
 
     def py(self, func):
         """Runs a python function in a remote ssh"""
-        code_lines = inspect.getsourcelines(func)[0]
-        code_lines = [l for l in code_lines if not (l.lstrip().startswith('@') or l.find('print ') > -1)]
+        code_lines = self.__cleanup__(func)
+        first_line = next(code_lines)
         # remove indentation
         indent = 0
-        while (indent * ' ') + code_lines[0].lstrip() != code_lines[0]:
+        while (indent * ' ') + first_line.lstrip() != first_line:
             indent += 1
-        code_lines = [l[indent:] for l in code_lines]
+        code_lines = (l[indent:] for l in code_lines)
         if self.local_pyversion is 3:
             signature = inspect.signature(func)
         else:
             signature = inspect.getargspec(func)
 
-        # print the result
-
         def ret_func(*args, **kwargs):
+            first_line = 'def {f}({args}):\n'
+            last_line = 'try:\n\tret={f}({args})\n' \
+                        'except Exception as e:\n\tret="Error: %s Message: %s " % (e.__class__, e)\n\n'
+
             if self.local_pyversion is 3:
-                code_lines[0] = 'def {f}({args}):\n'.format(f=func.__name__, args=','.join(
-                    [str(k) for k in signature.bind(*args, **kwargs).arguments.keys()]))
-                python_code = ''.join(code_lines)
-                python_code += '\nret={f}({args})\n'.format(f=func.__name__, args=','.join(
-                    [repr(k) for k in signature.bind(*args, **kwargs).arguments.values()]))
+                first_line = first_line.format(f=func.__name__, args=','.join(
+                    (str(k) for k in signature.bind(*args, **kwargs).arguments.keys())))
+                last_line = last_line.format(f=func.__name__, args=','.join(
+                    (repr(k) for k in signature.bind(*args, **kwargs).arguments.values())))
             else:
-                code_lines[0] = 'def {f}({args}):\n'.format(f=func.__name__,
-                                                            args=','.join([str(k) for k in signature.args]))
-                python_code = ''.join(code_lines)
+                first_line = first_line.format(f=func.__name__, args=','.join((str(k) for k in signature.args)))
                 kw = dict(zip(signature.args, args) + kwargs.items())
-                python_code += '\nret={f}({args})\n'.format(f=func.__name__, args=','.join(
-                    [str(k) + "=" + repr(v) for k, v in kw.items()]))
-            python_code += '\nif "pd" in globals() and type(ret)==pd.DataFrame:\n\tret=ret.to_dict()\n\n'
-            python_code += 'pickled=pickle.dumps(ret)\nprint("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
-            # run on the server
+                last_line = last_line.format(f=func.__name__, args=','.join(
+                    (str(k) + "=" + repr(v) for k, v in kw.items())))
+            pandas_code = 'if "pd" in globals() and isinstance(ret, pd.DataFrame):\n\tret=ret.to_dict()\n\n'
+            picled_code = 'pickled=pickle.dumps(ret)\nprint("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
+            python_code = ''.join(chain(first_line, code_lines, '\n', last_line, pandas_code, picled_code))
             # print python_code
+            # run on the server
             pickled = self.exec_code(python_code)
             # print pickled
             pickled = [i for i in pickled if '<OUTPUT>' in i][0]
@@ -190,7 +212,7 @@ class ssh_connect:
                 ret = pickle.loads(str.encode(pickled))
             else:
                 ret = pickle.loads(pickled)
-            if (type(ret) == dict) and self.cast_dict_to_dataframe:
+            if isinstance(ret, dict) and self.cast_dict_to_dataframe:
                 # if all the dictionary keys have the same number of records:
                 if len(set([len(v) for k, v in ret.items()])) == 1:
                     ret = pd.DataFrame(ret)
@@ -216,12 +238,13 @@ class ssh_connect:
 
 
 if __name__ == '__main__':
-    ssh = ssh_connect('user', 'password', 'server')
+    ssh = ssh_connect('ts', 'figase99', 'localhost', verbose=True)
 
 
-    @ssh.py
+    @ssh
     def python_pwd():
         import os
+        raise ValueError
         return os.getcwd()
 
 
