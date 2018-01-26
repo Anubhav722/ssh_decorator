@@ -9,7 +9,27 @@ from itertools import chain
 
 
 class ssh_connect:
-    """This class wraps the clpd ssh access"""
+    """This class wraps the clpd ssh access
+    @params:
+        :user            - Required  : Ssh user for connect                                            (Str)
+        :password        - Required  : Ssh pass for user                                               (Str)
+        :server          - Required  : Server to connect (IP/Host)                                     (Str)
+        :port            - Optional  : Specific ssh port. Default = 22                                 (Int)
+        :privateKeyFile  - Optional  : Path to your private ssh key file. Default = '~/.ssh/id_rsa'    (Str)
+        :interpreter     - Optional  : Path to interpreter on remote host. Default = '/usr/bin/python' (Str)
+        :verbose         - Optional  : Verbosity output                                                (Bool)
+        ...
+    @usage:
+        ssh = ssh_connect(login', 'password', 'host', port=22,
+                          privateKeyFile='~/.ssh/id_rsa', interpreter='/usr/bin/python',
+                          verbose=True)
+
+        @ssh
+        def py_func(*args)
+        ...
+
+        print(py_func(args))
+    """
 
     def __init__(self, user, password, server, port=22,
                  privateKeyFile='~/.ssh/id_rsa', interpreter='/usr/bin/python',
@@ -62,7 +82,9 @@ class ssh_connect:
         self.__del__(command)
 
     def __cleanup__(self, func):
-        """Clean decorated function before send code to remote server"""
+        """Clean up function.
+        Remove: `doc-strings`, `comments`, `empty lines`, `decoraters`
+        and `prints` if "verbose" key is False from input function"""
 
         def _cleanup_docstring_(line: str):
             triple_commons_cases = ('"""', "'''")
@@ -80,7 +102,8 @@ class ssh_connect:
             code_lines = (x for x in code_lines if not [i for i in ('print(', 'print ') if i in x])
         clean_comments = (x.split('#')[0] for x in code_lines if x)
         clean_empty_lines = (x for x in clean_comments if x and not x.isspace())
-        return (x for x in clean_empty_lines if not x.lstrip().startswith('@'))
+        clean_deco = (x for x in clean_empty_lines if not x.lstrip().startswith('@'))
+        return map(lambda x: x if x.endswith('\n') else ''.join((x,'\n')) ,clean_deco) # add new line to ich line
 
     @property
     def local_pyversion(self):
@@ -192,7 +215,7 @@ class ssh_connect:
         def ret_func(*args, **kwargs):
             first_line = 'def {f}({args}):\n'
             last_line = 'try:\n\tret={f}({args})\n' \
-                        'except Exception as e:\n\tret="Error: %s Message: %s " % (e.__class__, e)\n\n'
+                        'except Exception as e:\n\tret=(e.__class__, e)\n\n'
 
             if self.local_pyversion is 3:
                 first_line = first_line.format(f=func.__name__, args=','.join(
@@ -205,13 +228,13 @@ class ssh_connect:
                 last_line = last_line.format(f=func.__name__, args=','.join(
                     (str(k) + "=" + repr(v) for k, v in kw.items())))
             pandas_code = 'if "pd" in globals() and isinstance(ret, pd.DataFrame):\n\tret=ret.to_dict()\n\n'
-            picled_code = 'pickled=pickle.dumps(ret)\nprint("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
-            python_code = ''.join(chain(first_line, code_lines, '\n', last_line, pandas_code, picled_code))
+            pickled_code = 'pickled=pickle.dumps(ret)\nprint("<{t}>{p}</{t}>".format(p=repr(pickled),t="OU"+"TPUT" ))\n'
+            python_code = ''.join(chain(first_line, code_lines, '\n', last_line, pandas_code, pickled_code))
             # print python_code
             # run on the server
             pickled = self.exec_code(python_code)
             # print pickled
-            pickled = [i for i in pickled if '<OUTPUT>' in i][0]
+            pickled = [i for i in pickled if '<OUTPUT>' in i][0] #todo should return two val: exception and result
             pickled = pickled[pickled.find('<OUTPUT>') + len('<OUTPUT>'):pickled.find('</OUTPUT>')]
             pickled = eval(pickled)
             if self.local_pyversion != self.remote_pyversion:
