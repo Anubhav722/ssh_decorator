@@ -38,12 +38,15 @@ class ssh_connect:
         self.python_cmd = interpreter
         self.cast_dict_to_dataframe = True
 
-    def __del__(self):
+    def __del__(self, command=None):
         """close the ssh connection"""
         try:
-            self.ssh_client.close()
+            if command:
+                self.exec_cmd(command)
             if os.path.isfile('py_ssh_tmp.sh'):
+                self.exec_cmd('rm py_ssh_tmp.sh')
                 os.remove('py_ssh_tmp.sh')
+            self.ssh_client.close()
         except Exception:
             pass
 
@@ -54,6 +57,9 @@ class ssh_connect:
     def __rshift__(self, cmd):
         """convinience for self.exec_cmd"""
         self.exec_cmd(cmd)
+
+    def close(self, command=None):
+        self.__del__(command)
 
     def __cleanup__(self, func):
         """Clean decorated function before send code to remote server"""
@@ -238,13 +244,12 @@ class ssh_connect:
 
 
 if __name__ == '__main__':
-    ssh = ssh_connect('ts', 'figase99', 'localhost', verbose=True)
+    ssh = ssh_connect('login', 'password', 'host', verbose=True)
 
 
     @ssh
     def python_pwd():
         import os
-        raise ValueError
         return os.getcwd()
 
 
@@ -253,6 +258,7 @@ if __name__ == '__main__':
 
     @ssh.bash
     def ls():
+        """ls"""
         return "ls"
 
 
