@@ -86,7 +86,7 @@ class ssh_connect:
         Remove: `doc-strings`, `comments`, `empty lines`, `decoraters`
         and `prints` if "verbose" key is False from input function"""
 
-        def _cleanup_docstring_(line: str):
+        def _cleanup_docstring_(line):
             triple_commons_cases = ('"""', "'''")
             _ = line.strip()
             if hasattr(_cleanup_docstring_, 'TRIGGER'):
