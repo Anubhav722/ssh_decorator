@@ -27,7 +27,7 @@ Running code on a remote server is as simple as
     ssh.exec_cmd("ls")
     
     # Remote python command
-    ssh.exec_cmd("print 'hello world'")
+    ssh.exec_code("print 'hello world'")
     
 ## File Transfer
 
@@ -35,4 +35,4 @@ Running code on a remote server is as simple as
     ssh.get_file("remote.name", "local.name")
     
     # Upload
-    ssh.get_file("local.name", "remote.name")    
+    ssh.put_file("local.name", "remote.name")    
