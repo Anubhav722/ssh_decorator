@@ -27,7 +27,7 @@ Running code on a remote server is as simple as
     ssh.exec_cmd("ls")
     
     # Remote python command
-    ssh.exec_code("print 'hello world'")
+    ssh.exec_code("print ('hello world')")
     
 ## File Transfer
 
