@@ -116,7 +116,7 @@ class ssh_connect:
     def remote_pyversion(self):
         """Trying to get remote python version"""
         if not hasattr(self, '_remote_py_version'):
-            buf_str = self.exec_cmd('''%s -c "import sys;print('{}'.format(sys.version_info[0]))"''' % self.python_cmd)
+            buf_str = self.exec_cmd('''%s -c "import sys;print('{v}'.format(v=sys.version_info[0]))"''' % self.python_cmd)
             self._remote_py_version = int(buf_str.split()[-1])
         return self._remote_py_version
 
@@ -151,9 +151,8 @@ class ssh_connect:
                 self.stdin = '\n' + self.python_cmd + '\n'
         else:
             self.stdin = '\n' + self.python_cmd + '\n'
-        self.stdin += "import cPickle as pickle\n"
+        self.stdin += "import pickle, json, collections, itertools, sys, os, subprocess, traceback\n"
         self.stdin += "try:\n\timport pandas as pd\nexcept ImportError:\n\tpass\n\n"
-        self.stdin += "import subprocess\n"
         self.stdin += "def bash(cmd):\n\tret=subprocess.call(cmd+' >/dev/null 2>&1',shell=True)\n\treturn ret\n\n"
         self.stdin += "\nprint( '<RE'+'M'+'OTE>')\n"
         self.stdin += python_code
@@ -214,10 +213,10 @@ class ssh_connect:
 
         def ret_func(*args, **kwargs):
             first_line = 'def {f}({args}):\n'
-            last_line = 'try:\n\tret={f}({args})\n' \
-                        'except Exception as e:\n\tret=(e.__class__, e)\n\n'
+            last_line = 'try:\n\tret=("",{f}({args}))\n' \
+                        'except Exception:\n\tret=(traceback.format_exc(), None)\n\n'
 
-            if self.local_pyversion is 3:
+            if self.local_pyversion == 3:
                 first_line = first_line.format(f=func.__name__, args=','.join(
                     (str(k) for k in signature.bind(*args, **kwargs).arguments.keys())))
                 last_line = last_line.format(f=func.__name__, args=','.join(
@@ -234,13 +233,15 @@ class ssh_connect:
             # run on the server
             pickled = self.exec_code(python_code)
             # print pickled
-            pickled = [i for i in pickled if '<OUTPUT>' in i][0] #todo should return two val: exception and result
+            pickled = [i for i in pickled if '<OUTPUT>' in i][0]
             pickled = pickled[pickled.find('<OUTPUT>') + len('<OUTPUT>'):pickled.find('</OUTPUT>')]
             pickled = eval(pickled)
             if self.local_pyversion != self.remote_pyversion:
-                ret = pickle.loads(str.encode(pickled))
+                err, ret = pickle.loads(str.encode(pickled))
             else:
-                ret = pickle.loads(pickled)
+                err, ret = pickle.loads(pickled)
+            if any(err):
+                raise SystemError(err)
             if isinstance(ret, dict) and self.cast_dict_to_dataframe:
                 # if all the dictionary keys have the same number of records:
                 if len(set([len(v) for k, v in ret.items()])) == 1:
@@ -268,7 +269,6 @@ class ssh_connect:
 
 if __name__ == '__main__':
     ssh = ssh_connect('login', 'password', 'host', verbose=True)
-
 
     @ssh
     def python_pwd():

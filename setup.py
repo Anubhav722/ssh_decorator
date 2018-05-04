@@ -6,7 +6,7 @@ setup(
           'pandas',
           'paramiko',
   ],
-  version = '0.27',
+  version = '0.28',
   python_requires='>=2.7',
   description = 'Run python code via ssh with a decorator',
   author = 'Uri Goren',
