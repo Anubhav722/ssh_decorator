@@ -1,5 +1,5 @@
 # SSH Decorator 
-
+[![Downloads](http://pepy.tech/badge/ssh-decorate)](http://pepy.tech/count/ssh-decorate)
 ## Basic Usage
 Install with
 
