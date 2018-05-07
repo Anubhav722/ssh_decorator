@@ -1,5 +1,4 @@
 # SSH Decorator 
-[![Downloads](http://pepy.tech/badge/ssh-decorator)](http://pepy.tech/count/ssh-decorator)
 # Important note !
 It has been brought to our attention, that previous versions of this module had been hijacked and uploaded to ``PyPi`` unlawfully.
 Make sure you look at the code of this package (or any other package that asks for your credentials) prior to using it.
