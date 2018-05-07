@@ -7,7 +7,7 @@ Make sure you look at the code of this package (or any other package that asks f
 ## Basic Usage
 Install with
 
-    pip3 install ssh_decorator
+    pip3 install git+git://github.com/urigoren/ssh_decorator
 
 Running code on a remote server is as simple as
 
