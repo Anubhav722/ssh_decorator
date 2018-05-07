@@ -1,12 +1,12 @@
 from distutils.core import setup
 setup(
-  name = 'ssh_decorate',
-  packages = ['ssh_decorate'],
+  name = 'ssh_decorator',
+  packages = ['ssh_decorator'],
   install_requires=[
           'pandas',
           'paramiko',
   ],
-  version = '0.33',
+  version = '0.34',
   python_requires='>=2.7',
   description = 'Run python code via ssh with a decorator',
   author = 'Uri Goren',
